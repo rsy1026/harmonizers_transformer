@@ -1,4 +1,4 @@
-## PARSE DATA ## 
+## PARSING DATA ## 
 
 1) CMD: 
 - download raw data at: https://github.com/shiehn/chord-melody-dataset
@@ -10,7 +10,7 @@ outputs:
 2) saves train/val/test batches (saved directory ex: ./CMD/exp/train/batch/~)
 3) saves h5py dataset for the train/val/test batches (saved filename ex: ./CMD_train.h5)
 ---------------------------------------------------------------------------------------------
-## TRAIN MODEL ## 
+## TRAINING MODELS ## 
 
 1) STHarm 
 python3 trainer.py [dataset] STHarm
@@ -25,7 +25,7 @@ outputs:
 1) model parameters/losses checkpoints (saved filename ex: ./trained/STHarm_CMD)
 
 ---------------------------------------------------------------------------------------------
-## TEST MODEL ## 
+## TESTING MODELS ## 
 python3 test.py [dataset] [song_ind] [start_point] [model_name] [device_num] [alpha]
 
 * [dataset] -> CMD 
