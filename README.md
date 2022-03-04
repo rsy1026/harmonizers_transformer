@@ -12,11 +12,11 @@ outputs:
 ---------------------------------------------------------------------------------------------
 ## TRAINING MODELS ## 
 
-1) STHarm 
+1) STHarm: 
 python3 trainer.py [dataset] STHarm
-2) VTHarm 
+2) VTHarm: 
 python3 trainer.py [dataset] VTHarm
-3) rVTHarm
+3) rVTHarm:
 python3 trainer.py [dataset] rVTHarm 
 
 * [dataset] -> CMD
