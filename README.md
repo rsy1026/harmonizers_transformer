@@ -40,4 +40,4 @@ python3 test.py [dataset] [song_ind] [start_point] [model_name] [device_num] [al
 * [alpha] -> alpha value for rVTHarm / if not fed (different model), ignored
 
 outputs:
-2) saves generated(sampled) MIDI / GT MIDI (saved filename ex: ./Sampled__*.mid, ./GT__*.mid)
+1) saves generated(sampled) MIDI / GT MIDI (saved filename ex: ./Sampled__*.mid, ./GT__*.mid)
