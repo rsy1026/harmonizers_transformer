@@ -1,6 +1,5 @@
 ## Translating Melody to Chord: Structured and Flexible Harmonization of Melody with Transformer
 
---------
 ### DEMO
 https://free-pig-6c6.notion.site/Translating-Melody-to-Chord-Structured-and-Flexible-Harmonization-of-Melody-with-Transformer-d03b868e0a964ac280a97795304248e9
 
