@@ -91,7 +91,7 @@ def main(dataset=None,
 
     model = MODEL(hidden=hidden, n_layers=n_layers, device=device)
     model.to(device)
-    trainer = optim.Adam(model.parameters(), lr=1e-3)
+    trainer = optim.Adam(model.parameters(), lr=1e-4)
     scheduler = optim.lr_scheduler.LambdaLR(
         optimizer=trainer, lr_lambda=lambda epoch: 0.95 ** epoch)
 
