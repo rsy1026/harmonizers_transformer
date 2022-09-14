@@ -1,9 +1,9 @@
-## Translating Melody to Chord: Structured and Flexible Harmonization of Melody with Transformer
+# Translating Melody to Chord: Structured and Flexible Harmonization of Melody with Transformer
 * Paper: https://ieeexplore.ieee.org/document/9723052
 * Demo: https://free-pig-6c6.notion.site/Translating-Melody-to-Chord-Structured-and-Flexible-Harmonization-of-Melody-with-Transformer-d03b868e0a964ac280a97795304248e9
 
 
-### PARSE DATA
+## PARSE DATA
 
 1) CMD: 
 - download raw data at: https://github.com/shiehn/chord-melody-dataset
@@ -21,7 +21,7 @@ outputs:
 3) saves h5py dataset for the train/val/test batches (saved filename ex: ./CMD_train.h5)
 
 
-### TRAIN MODEL
+## TRAIN MODEL
 
 1) STHarm 
 python3 trainer.py [dataset] STHarm
@@ -36,7 +36,7 @@ outputs:
 1) model parameters/losses checkpoints (saved filename ex: ./trained/STHarm_CMD)
 
 
-### TEST MODEL 
+## TEST MODEL 
 python3 test.py [dataset] [song_ind] [start_point] [model_name] [device_num] [alpha]
 
 * [dataset] -> CMD or HLSD 
