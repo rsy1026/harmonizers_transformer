@@ -13,9 +13,11 @@ import importlib
 from scipy.stats import truncnorm
 
 from CMD_parser_features import parse_CMD_features
+from HLSD_features import parse_HLSD_features
 from process_data import *
 from utils.parse_utils import *
 from models import STHarm, VTHarm
+from metrics import *
 
 
 sep = os.sep 
@@ -62,6 +64,13 @@ class TestData(object):
                 xmlDoc, note_only=False, apply_grace=False, apply_tie=False)
             self.CMD_data(self.features, xml_notes, start_point, maxlen) 
 
+        elif dataset == "HLSD":
+            self.test_parent_path = sep.join([".","HLSD","exp","test","raw"])
+            test_song_lists = sorted(glob(os.path.join(self.test_parent_path, "features.*.npy")))
+            test_song = test_song_lists[song_ind]
+            self.test_name = os.path.basename(test_song).split(".")[1].split("_")[0]
+            self.features = np.load(test_song, allow_pickle=True).tolist()
+            self.HLSD_data(self.features, start_point, maxlen)   
 
     def __call__(self):
         return self.test_batches, self.m2, self.test_notes
@@ -115,8 +124,55 @@ class TestData(object):
         self.m2 = _m2 
         self.test_notes = test_notes 
 
+    def HLSD_data(self, features, start_point, maxlen):
 
-def test_model(dataset="CMD", 
+        # get onehot data
+        inp, oup, key, onset, onset_xml, inds = get_roll_HLSD(features, chord_type="simple")
+
+        # get indices where new chord
+        new_chord_ind = list()
+        for i, c in enumerate(onset[:,1]):
+            if c == 1:
+                new_chord_ind.append(i)
+        new_chord_ind.append(len(inp))
+                
+        # get range
+        chord_ind = new_chord_ind[start_point:start_point+maxlen+1]
+        start, end = chord_ind[0], chord_ind[-1] # (maxlen+1)th chord
+
+        note_inds = list()
+        for i in inds:
+            if i[1] >= start and i[1] < end: 
+                note_inds.append(i[0])
+
+        _x = inp[start:end]
+        _k = np.asarray(12 * key)
+        nnew_ = onset[start:end, :1]
+        cnew_ = onset[start:end, -1:]
+        nnew2_ = onset_xml[start:end, :1]
+        cnew2_ = onset_xml[start:end, -1:]
+
+        _n = make_align_matrix_roll2note(_x, nnew_) # roll2note 
+        _m = make_align_matrix_note2chord(nnew_, cnew_) # note2chord
+        _m2 = make_align_matrix_note2chord(nnew2_, cnew2_)
+        _y = np.asarray([oup[c] for c in chord_ind[:-1]]) 
+
+        x_pitch = np.argmax(_x, axis=-1)
+        y_chord = np.argmax(_y, axis=-1) # labels
+        self.key_sig = 0
+
+        test_x = x_pitch
+        test_k = _k
+        test_m = _m
+        test_n = _n
+        test_y = y_chord
+
+        self.test_batches = [test_x, test_k, test_m, test_n, test_y]
+        self.m2 = _m2 
+        self.test_notes = note_inds 
+
+
+def test_model(dataset=None, 
                song_ind=None, 
                exp_name=None,
                device_num=None,
@@ -213,6 +269,28 @@ def test_model(dataset="CMD",
     test_ckind_lab = ["{}".format(ind2chord[ck]) \
         for ck in test_ckind_ind]
 
+    chord = np.argmax(test_chord, axis=-1)
+
+    # results for model
+    result1, result2 = compute_metrics(x_, test_chord_ind, n_, m_, key_sig, dataset=dataset)
+    # results for GT
+    gt1, gt2 = compute_metrics(x_, y_chord_ind, n_, m_, key_sig, dataset=dataset)
+
+    CHE, CC, CTR, PCS, CTD, MTD = result1  
+    gCHE, gCC, gCTR, gPCS, gCTD, gMTD = gt1  
+    TPS, DIC = result2 
+    gTPS, gDIC = gt2 
+
+    model_results = [np.asarray(TPS), np.asarray(DIC), test_chord_ind]
+    gt_results = [np.asarray(gTPS), np.asarray(gDIC), y_chord_ind]
+
+    TPSD, DICD, LD = chord_similarity(model_results, gt_results)
+
+    print()
+    print("{}:".format(exp_name))   
+    print("     > CHE: {:.4f} / CC: {:.4f} / CTnCTR: {:.4f}".format(CHE, CC, CTR))
+    print("     > PCS: {:.4f} / CTD: {:.4f} / MCTD: {:.4f}".format(PCS, CTD, MTD))
+    print("     > LD: {:.4f} / TPSD: {:.4f} / DICD: {:.4f}".format(LD, TPSD, DICD))
 
     # render into MIDI 
     if dataset == "CMD":
@@ -220,6 +298,14 @@ def test_model(dataset="CMD",
             savepath="GT__{}__s{}_p{}-{}.mid".format(
                 test_name, song_ind, start_point, start_point+maxlen-1,))
         render_melody_chord_CMD(test_croot_ind, test_ckind_lab, test_notes, _m2, 
+            savepath="Sampled__{}__s{}_{}_p{}-{}.mid".format(
+                test_name, song_ind, exp_name, start_point, start_point+maxlen-1))
+
+    elif dataset == "HLSD":
+        render_melody_chord_HLSD(y_croot_ind, y_ckind_lab, features, test_notes, _m2, 
+            savepath="GT__{}__s{}_p{}-{}.mid".format(
+                test_name, song_ind, start_point, start_point+maxlen-1))
+        render_melody_chord_HLSD(test_croot_ind, test_ckind_lab, features, test_notes, _m2, 
             savepath="Sampled__{}__s{}_{}_p{}-{}.mid".format(
                 test_name, song_ind, exp_name, start_point, start_point+maxlen-1))
 

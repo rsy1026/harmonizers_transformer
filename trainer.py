@@ -52,6 +52,10 @@ def main(dataset=None,
         CustomDataset = CMDDataset
         PadCollate = CMDPadCollate
 
+    elif dataset == "HLSD":
+        CustomDataset = HLSDDataset
+        PadCollate = HLSDPadCollate
+
     with h5py.File(train_data, "r") as f:
         train_x = np.asarray(f["x"])
         train_k = np.asarray(f["c"])
@@ -87,7 +91,7 @@ def main(dataset=None,
 
     model = MODEL(hidden=hidden, n_layers=n_layers, device=device)
     model.to(device)
-    trainer = optim.Adam(model.parameters(), lr=1e-3)
+    trainer = optim.Adam(model.parameters(), lr=1e-4)
     scheduler = optim.lr_scheduler.LambdaLR(
         optimizer=trainer, lr_lambda=lambda epoch: 0.95 ** epoch)
 
@@ -118,20 +122,20 @@ def main(dataset=None,
     # loss_list = checkpoint['loss'].tolist()
     # val_loss_list = checkpoint['val_loss'].tolist()
 
+    # load data loader
+    train_dataset = CustomDataset(
+        train_x, train_k, train_n, train_m, train_y, device=device)
+    val_dataset = CustomDataset(
+        val_x, val_k, val_n, val_m, val_y, device=device)
+
+    generator = DataLoader(
+        train_dataset, batch_size=batch_size, num_workers=4, 
+        collate_fn=PadCollate(), shuffle=True, drop_last=True, pin_memory=False)
+    generator_val = DataLoader(
+        val_dataset, batch_size=batch_size_val, num_workers=0, 
+        collate_fn=PadCollate(), shuffle=False, pin_memory=False)
+
     for epoch in range(checkpoint_num, total_epoch):
-
-        # load data loader
-        train_dataset = CustomDataset(
-            train_x, train_k, train_n, train_m, train_y, device=device)
-        val_dataset = CustomDataset(
-            val_x, val_k, val_n, val_m, val_y, device=device)
-
-        generator = DataLoader(
-            train_dataset, batch_size=batch_size, num_workers=4, 
-            collate_fn=PadCollate(), shuffle=True, drop_last=True, pin_memory=False)
-        generator_val = DataLoader(
-            val_dataset, batch_size=batch_size_val, num_workers=0, 
-            collate_fn=PadCollate(), shuffle=False, pin_memory=False)
 
         epoch += 1
         model.train()
@@ -444,7 +448,7 @@ if __name__ == "__main__":
     '''
     python3 trainer.py [dataset] [exp_name]
 
-    - dataset: CMD
+    - dataset: CMD / HLSD 
     - exp_name: STHarm / VTHarm / rVTHarm
     '''
     dataset = sys.argv[1]

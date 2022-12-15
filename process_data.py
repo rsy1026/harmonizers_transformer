@@ -39,7 +39,10 @@ class FeatureIndex(object):
         # dict for features-to-indices
         if dataset == "CMD":
             uniq_chords = np.load("unique_chord_labels_CMD.npy").tolist()[:-1]
-            self.uniq_chords_simple = self.simplify_all_chord_labels_CMD(uniq_chords)          
+            self.uniq_chords_simple = self.simplify_all_chord_labels_CMD(uniq_chords)
+        elif dataset == "HLSD":
+            uniq_chords = np.load("unique_chord_labels_HLSD.npy").tolist()
+            self.uniq_chords_simple = self.simplify_all_chord_labels_HLSD(uniq_chords)            
 
         self.type2ind = self.feature2ind(['16th', 'eighth', 'eighth_dot', 
             'quarter', 'quarter_dot', 'half', 'half_dot', 'whole', 'none'])
@@ -72,6 +75,13 @@ class FeatureIndex(object):
             uniq_chords_simple.append(new_lab)
         return np.unique(uniq_chords_simple)
 
+    def simplify_all_chord_labels_HLSD(self, uniq_chords):
+        uniq_chords_simple = list()
+        for c in uniq_chords:
+            new_lab = self.simplify_chord_label_HLSD(c)
+            uniq_chords_simple.append(new_lab)
+        return np.unique(uniq_chords_simple)
+
     def simplify_chord_label_CMD(self, c):
         labs = c.split("_")
         lab = labs[0]
@@ -83,6 +93,22 @@ class FeatureIndex(object):
                     lab = lab.replace("9", "7")
             if "dim7" == lab:
                 lab = "dim"
+        new_c = "{}_".format(lab)
+        return new_c
+
+    def simplify_chord_label_HLSD(self, c):
+        labs = c.split("_")
+        lab = labs[0]
+        if lab != "":
+            if "9" == lab or "11" == lab: # dominant
+                lab = "7"
+            else:
+                if "9" in lab:
+                    lab = lab.replace("9", "7")
+                elif "11" in lab:
+                    lab = lab.replace("11", "7")
+            if "ø" in lab or "o" in lab:
+                lab = "dim5"
         new_c = "{}_".format(lab)
         return new_c
 
@@ -141,6 +167,55 @@ def split_sets_CMD():
             shutil.copy(p,
                 os.path.join(savepath_, "features.{}.{}.npy".format(c_name, p_name)))
             print("saved xml data for {}/{}".format(c_name, p_name))
+
+def split_sets_HLSD():
+    '''
+    * Total 13335 parts
+        - 9218 songs
+        - only 4/4
+    '''
+    datapath = sep.join(['.','HLSD','output','event'])
+    all_songs = sorted(glob(os.path.join(datapath, "*"+sep)))
+
+    file_list = list()
+    song_num = 0
+    for c in all_songs:
+        pieces = sorted(glob(os.path.join(c, '*'+sep)))
+        for p in pieces:
+            songs = sorted(glob(os.path.join(p, '*'+sep)))
+            for s in songs:
+                song_num += 1
+                parts = sorted(glob(os.path.join(s, 'features.*.npy')))
+                for part in parts:
+                    file_list.append(part)
+
+    file_num = len(file_list)
+    train_num = int(file_num*0.8) # originally: file_num - 1000
+    val_num = (file_num - train_num) // 2
+    train_path = sep.join(['.','HLSD','exp','train','raw'])
+    val_path = sep.join(['.','HLSD','exp','val','raw'])
+    test_path = sep.join(['.','HLSD','exp','test','raw'])
+
+    val_songs = file_list[train_num:train_num+val_num]
+    test_songs = file_list[train_num+val_num:]
+
+    if not os.path.exists(train_path):
+        os.makedirs(train_path)
+    if not os.path.exists(val_path):
+        os.makedirs(val_path)
+    if not os.path.exists(test_path):
+        os.makedirs(test_path)
+
+    for c in file_list:
+        if c in val_songs:
+            savepath = val_path
+        elif c in test_songs:
+            savepath = test_path
+        else: savepath = train_path
+        c_name = '_'.join(os.path.basename(c).split('.')[1:-1])
+        shutil.copy(c,
+            os.path.join(savepath, "features.{}.npy".format(c_name)))
+        print("saved xml data for {}".format(c_name))
 
 def make_align_matrix(roll, attacks_ind):
     new_ind = attacks_ind - np.min(attacks_ind) # start from 0
@@ -588,6 +663,161 @@ def get_roll_CMD(features, chord_type=None):
 
     return note_roll, chord_roll, key_roll, beat_roll, onset_roll, onset_roll_xml, note_ind_onset
 
+def get_roll_HLSD(features, chord_type=None):
+
+    FI = FeatureIndex(dataset="HLSD")
+
+    orig_key = features['orig_key_info']
+    key_root = FI.root2ind[check_chord_root(orig_key[0])]
+    if orig_key[1] == '1':
+        mode = 0 # major
+    elif orig_key[1] == '6':
+        mode = 1
+    elif orig_key[1] in ['4', '5']: # lydian, mixolydian
+        mode = 0 # major 
+    else: # other modes
+        mode = 1 
+    key_sig = 12 * mode + key_root
+    time_sig = features['time_signature']
+    assert time_sig == '4'
+
+    notes = features["melody"]
+    measures = features["chord"]
+
+    maxlen_time = measures[-1]['end'] 
+    unit = 1 / 4 # 16th note 
+    maxlen = int(maxlen_time // unit)
+    note_roll = np.zeros([maxlen, 89])
+    if chord_type == "all":
+        chord_roll = np.zeros([maxlen, 156])
+    elif chord_type == "simple":
+        chord_roll = np.zeros([maxlen, 72])
+    onset_roll = np.zeros([maxlen, 2]) # onsets for note & chord 
+    onset_roll_xml = np.zeros([maxlen, 2]) # onsets before notes are chunked
+    # beat_roll = np.zeros([maxlen, 1]) # 3-stong / 2-mid / 1-weak / 0-none
+    note_ind_onset = list()
+
+    # note roll
+    prev_end = 0
+    for i in range(len(notes)):
+        # get onset and offset
+        onset = notes[i]['start']
+        offset = notes[i]['end']
+        if onset > offset:
+            continue
+        if onset < prev_end:
+            continue
+        note_ind_onset.append([i, int(onset // unit)])
+        onset_roll_xml[int(onset // unit), 0] = 1
+
+        # if note lasts over corresponding measure(1/2)
+        note_chunks = list()
+        for m in range(len(measures)):
+            measure_onset = measures[m]['start']
+            if m < len(measures)-1:
+                next_measure_onset = measures[m]['end']
+                if onset >= measure_onset and onset < next_measure_onset:
+                    # print(onset, measure_onset, next_measure_onset)
+                    new_onset = copy.deepcopy(onset)
+                    next_measures = measures[m+1:] 
+                    for n in next_measures:
+                        if offset <= n['start']: # ends within a measure
+                            note_chunks.append([new_onset, offset])
+                            break 
+                        elif offset > n['start']: # longer than a measure
+                            note_chunks.append([new_onset, n['start']])
+                            new_onset = n['start'] # update onset
+                    break
+                else:
+                    continue
+
+            elif m == len(measures)-1: # last measure
+                next_measure_onset = maxlen_time
+                note_chunks.append([onset, offset])
+                    
+        for each in note_chunks:
+            start = int(quantize(each[0], unit=0.25) // unit)
+            end = int(quantize(each[1], unit=0.25) // unit)
+            # get pitch 
+            pitch = notes[i]['pitch'] 
+            is_rest = notes[i]['pitch'] 
+            if pitch == 0 or notes[i]['is_rest'] is True:
+                pitch = 88 
+            else:
+                pitch = (pitch - 21) - key_root # normalize to C Major
+                
+            # put values to rolls 
+            note_roll[start:end, int(pitch)] = 1
+            onset_roll[start, 0] = 1
+        
+        prev_end = offset
+        # print(onset, offset, note_chunks)
+
+    # chord roll
+    prev_end = 0
+    for i in range(len(measures)):
+        # get onset and offset
+        start = int(measures[i]['start'] // unit) 
+        end = int(measures[i]['end'] // unit)
+        if i < len(measures)-1:
+            next_start = int(measures[i+1]['start'] // unit) 
+        elif i == len(measures)-1:
+            next_start = int(measures[i]['end'] // unit)
+        if end < next_start:
+            end = next_start
+
+        # get chord      
+        chord_kind = "{}_".format(measures[i]['quality']+measures[i]['type'])
+        if chord_type == "all":
+            chord2ind = FI.chord2ind_func # function
+            chord_len = len(uniq_chords)
+        elif chord_type == "simple":
+            chord_kind = FI.simplify_chord_label_HLSD(chord_kind)
+            chord2ind = FI.chord2ind_func_simple # function
+            chord_len = len(FI.uniq_chords_simple)
+        
+        croot = measures[i]['root'] - key_root # normalize to C Major
+        if croot < 0:
+            croot = (croot + 12) % 12
+        ckind = chord2ind[chord_kind] # chord root
+        chord = croot * chord_len + ckind # 156 classes / 36 classes
+        chord_roll[start:end, chord] = 1  
+        onset_roll[start, 0] = 1
+        onset_roll[start, 1] = 1 
+        onset_roll_xml[start, 1] = 1
+    
+    # cut if melody ends early (half-measure)
+    onset_ind = np.where(onset_roll[:,1] == 1)[0].tolist() + [len(onset_roll)]
+    for o in reversed(onset_ind):
+        if o > 0:
+            if np.sum(note_roll[o-8:o]) == 0:
+                continue 
+            elif np.sum(note_roll[o-8:o]) > 0:
+                break 
+    note_roll = note_roll[:o]
+    onset_roll = onset_roll[:o]
+
+    # fill in "rest" 
+    j = 1
+    non_zero = 0
+    for i in range(len(note_roll)):
+        frame = note_roll[i]
+        if np.sum(frame) == 0:
+            j += 1 
+            continue 
+        elif np.sum(frame) > 0:
+            if np.sum(note_roll[non_zero+1]) == 0:
+                note_roll[non_zero+1:non_zero+j, 88] = 1
+                onset_roll[non_zero+1, 0] = 1
+            j = 1
+            non_zero = i
+    if non_zero < len(note_roll)-1:
+        if np.sum(note_roll[non_zero+1]) == 0:
+            note_roll[non_zero+1:non_zero+j, 88] = 1
+            onset_roll[non_zero+1, 0] = 1
+
+    return note_roll, chord_roll, mode, onset_roll, onset_roll_xml, note_ind_onset
+
 def save_batches_CMD(chord_type='simple'):    
     print("Saving batches...")
 
@@ -716,6 +946,113 @@ def save_batches_CMD(chord_type='simple'):
     
     # np.save("unique_chord_labels_CMD.npy", np.unique(chord_list))
 
+def save_batches_HLSD(chord_type='simple'):    
+    print("Saving batches...")
+
+    parent_path = sep.join(['.','HLSD','exp'])
+    groups = sorted(glob(os.path.join(parent_path, "*"+sep)))
+    maxlen, hop = 16, 8
+    chord_list = list()
+
+    for g, group in enumerate(groups): # train/val/test
+        datapath = os.path.join(group, 'raw')
+        savepath = os.path.join(group, "batch")
+        if not os.path.exists(savepath):
+            os.makedirs(savepath)
+        pieces = sorted(glob(os.path.join(datapath, 'features.*.npy')))
+
+        for piece in pieces:
+            p_name = os.path.basename(piece).split('.')[-2]
+            features = np.load(piece, allow_pickle=True).tolist()            
+            chords = features['chord']
+            for chord in chords:
+                chord_name = "{}{}_".format(chord['quality'], chord['type'])
+                if chord_name not in chord_list:
+                    chord_list.append(chord_name)
+            # print(p_name)
+
+            # get onehot data
+            inp, oup, key, onset, onset_xml, inds = get_roll_HLSD(features, chord_type=chord_type)
+            # print(p_name)
+            # get indices where new chord
+            new_chord_ind = [i for i, c in enumerate(onset[:,1]) if c == 1]
+            new_chord_ind.append(len(inp))
+
+            # make sure new_chord_inds are equally distanced
+            prev_ind = None 
+            for c in new_chord_ind: 
+                if prev_ind is not None:
+                    # print(c - prev_ind) 
+                    assert c - prev_ind == 8
+                prev_ind = c
+
+            # save batch 
+            num = 1
+            for b in range(0, len(new_chord_ind), hop):
+
+                ind = ind2str(num, 3)
+                chord_ind = new_chord_ind[b:b+maxlen+1]
+                start, end = chord_ind[0], chord_ind[-1] # (maxlen+1)th chord
+                in1_ = inp[start:end]
+                nnew_ = onset[start:end, :1]
+                cnew_ = onset[start:end, -1:]
+                nnew2_ = onset_xml[start:end, :1]
+                cnew2_ = onset_xml[start:end, -1:]
+                
+                note_ind = [i for i, n in enumerate(nnew_) if n == 1]
+                # roll2note 
+                in2_ = make_align_matrix_roll2note(in1_, nnew_)
+                # note2chord
+                in3_ = make_align_matrix_note2chord(nnew_, cnew_)
+                
+                # get data in different units
+                in4_ = np.asarray(key)
+                out1_ = np.asarray([oup[c] for c in chord_ind[:-1]])
+
+                # check cnew 
+                cnew_note = np.matmul(cnew_.T, in2_).T # frame2note
+                if np.array_equal(cnew_note, np.sign(cnew_note)) is False:
+                    print(p_name)
+                    raise AssertionError
+
+                # if batch is shorter than 4 chords
+                if len(out1_) < 4: 
+                    continue
+                
+                # if batch only contains rests
+                pitch = np.argmax(in1_, axis=-1)
+                uniq_pitch = np.unique(pitch)
+                if len(uniq_pitch) and uniq_pitch[0] == 88:
+                    continue
+
+                assert in1_.shape[0] == in2_.shape[0]
+                assert in3_.shape[1] == out1_.shape[0]
+
+                # save batch
+                savename_x = os.path.join(savepath, '{}.batch_x.{}.npy'.format(
+                    p_name.lower(), ind))
+                savename_c = os.path.join(savepath, '{}.batch_c.{}.npy'.format(
+                    p_name.lower(), ind))
+                savename_y = os.path.join(savepath, '{}.batch_y.{}.npy'.format(
+                    p_name.lower(), ind))
+                savename_n = os.path.join(savepath, '{}.batch_n.{}.npy'.format(
+                    p_name.lower(), ind)) # roll2note mat
+                savename_m = os.path.join(savepath, '{}.batch_m.{}.npy'.format(
+                    p_name.lower(), ind)) # note2chord mat
+
+                np.save(savename_x, in1_)
+                np.save(savename_n, in2_)
+                np.save(savename_m, in3_)
+                np.save(savename_c, in4_)
+                np.save(savename_y, out1_)
+
+                print("saved batches for {} --> inp size: {} / oup size: {}      ".format(
+                    p_name, in1_.shape, out1_.shape), end='\r') 
+                num += 1
+            print("saved batches for {}".format(p_name))
+
+    # np.save("unique_chord_labels_HLSD.npy", np.unique(chord_list))
+
 
 def create_h5_dataset(dataset=None, setname=None): # save npy files into one hdf5 dataset
     batch_path = sep.join([".", dataset, "exp", setname, "batch"])
@@ -834,6 +1171,87 @@ def render_melody_chord_CMD(croots, ckinds, xml_notes, m,
     if return_mid is True:
         return [melody_track, chord_track]
 
+def render_melody_chord_HLSD(croots, ckinds, features, note_inds, m, 
+    save_melody=False, save_chord=False, savepath=None, save_mid=True, return_mid=False):
+    
+    FI = FeatureIndex(dataset="HLSD")
+
+    notes = [features['melody'][n] for n in note_inds]
+    prev_note = None
+    midi_notes = list()
+    melody_track = list()
+    chord_track = list()
+    first_onset = np.min([n['start'] for n in notes])
+    end_time = 0
+    key_root = features['orig_key_info'][0]
+    key_ind = FI.root2ind[check_chord_root(key_root)] 
+
+    min_oct = int(np.min([(int(n['pitch'] - key_ind)//12 - 1) for n in notes if n['pitch'] > 0]))
+    unit = 0.5
+    for i, note in enumerate(notes):
+        # 1 == one beat == 1/2 sec
+        onset = (note['start'] - first_onset) * unit 
+        offset = (note['end'] - first_onset) * unit
+        offset = np.min([offset, len(croots)])
+        # print(onset, offset)
+        if note['pitch'] == 0:
+            pass 
+        elif note == prev_note:
+            pass
+        else:
+            pitch = int(note['pitch']) - key_ind # normalize to C Major
+            if min_oct <= 3:
+                pitch += (12 * (4-min_oct)) 
+            midi_note = pretty_midi.containers.Note(
+                velocity=108, pitch=pitch, start=onset, end=offset) 
+                
+            midi_notes.append(midi_note)
+            melody_track.append(midi_note)
+
+        prev_note = note
+    melody_offset = offset
+
+    chord_oct = 4
+    chord_sec = 1 # 4/4, 120 BPM
+    notenum = np.sum(m, axis=0)
+    assert len(notenum) == len(croots) == len(ckinds)
+    
+    for croot, ckind in zip(croots, ckinds):        
+        onset = end_time
+        offset = onset + chord_sec
+        # print(start_time, end_time, chord_sec)
+        chord_notes = get_chord_notes(ckind, croot, pc_norm=False)
+        # chord_notes = [chord_notes[0]-12] + chord_notes # add base
+        # print(chord_notes)
+
+        for cnote in chord_notes:
+            pitch = cnote + chord_oct * 12
+            midi_cnote = pretty_midi.containers.Note(
+                velocity=84, pitch=pitch, start=onset, end=offset)    
+            # print(midi_cnote)
+            midi_notes.append(midi_cnote) 
+            chord_track.append(midi_cnote)
+
+        end_time = offset 
+    chord_offset = offset 
+
+    assert melody_offset <= chord_offset, print(melody_offset, chord_offset)
+
+    if save_mid is True:
+        save_new_midi(
+            midi_notes, ccs=None, new_midi_path=savepath, start_zero=True)
+
+    if save_melody is True:
+        save_new_midi(
+            melody_track, ccs=None, new_midi_path=savepath, start_zero=True)
+
+    if save_chord is True:
+        save_new_midi(
+            chord_track, ccs=None, new_midi_path=savepath, start_zero=True)
+
+    if return_mid is True:
+        return [melody_track, chord_track]
+
 def render_melody_chord_Q(croots, ckinds, notes, m, 
     save_melody=False, save_chord=False, savepath=None, save_mid=True, return_mid=False):
     notenum = np.sum(m, axis=0)
@@ -927,6 +1345,17 @@ if __name__ == "__main__":
         split_sets_CMD()
         save_batches_CMD()
         print("---------- END SAVING CMD BATCHES ----------")
+        print()
+    elif args.dataset == 'HLSD':
+        print()
+        print("---------- START PARSING HLSD DATASET ----------")
+        subprocess.call(['python', 'HLSD_parser.py'])
+        subprocess.call(['python', 'HLSD_features.py'])
+        print()
+        print("---------- START SAVING HLSD BATCHES ----------")
+        split_sets_HLSD()
+        save_batches_HLSD()
+        print("---------- END SAVING HLSD BATCHES ----------")
         print()
 
     # save dataset in h5py format 
