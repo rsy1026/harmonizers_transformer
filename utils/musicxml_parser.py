@@ -549,11 +549,11 @@ class Measure(object):
         self._parse_backup(child)
       elif child.tag == 'barline': 
         self._parse_barline(child)
-      elif child.tag == 'direction':
-        self._parse_direction(child)
-        # additionally, direction types --> this contains most of important expressions
-        direction = Direction(child, self.state)
-        self.directions.append(direction)
+      # elif child.tag == 'direction':
+      #   self._parse_direction(child)
+      #   # additionally, direction types --> this contains most of important expressions
+      #   direction = Direction(child, self.state)
+      #   self.directions.append(direction)
       elif child.tag == 'forward':
         self._parse_forward(child)
       elif child.tag == 'note':
@@ -914,7 +914,7 @@ class Note(object):
     self.x_position = None 
     self.y_position = None 
     self.note_duration = NoteDuration(state)
-    self.note_notations = NoteNotations() 
+    # self.note_notations = NoteNotations() 
     self.staff = 1 
     self.stem = 1 
     self.measure_number = state.measure_number 
@@ -958,8 +958,8 @@ class Note(object):
       elif child.tag == 'time-modification':
         # A time-modification element represents a tuplet_ratio
         self._parse_tuplet(child)
-      elif child.tag == 'notations': 
-        self.note_notations.parse_notations(child)
+      # elif child.tag == 'notations': 
+      #   self.note_notations.parse_notations(child)
       elif child.tag == 'unpitched':
         raise UnpitchedNoteError('Unpitched notes are not supported')
       elif child.tag == 'staff': 
