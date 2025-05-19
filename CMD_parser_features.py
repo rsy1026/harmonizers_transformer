@@ -49,7 +49,7 @@ def save_features():
 				os.makedirs(save_filename)
 			# save features
 			np.save(os.path.join(save_filename, 
-				"features.{}.{}.npy".format(c_name, p_name)), input_list)
+				"features.{}.{}.npy".format(c_name, p_name)), np.asarray(input_list, dtype=object))
 
 		print("parsed input for: {}".format(c_name))
 
